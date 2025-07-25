@@ -18,14 +18,14 @@ yarn-error.log*
 # ambiente (NUNCA versionar .env com senhas ou tokens)
 .env
 .env.local
-.env.*.local
-
+.env.*
+settings
 # IDEs e editores
 .vscode/
 .idea/
 *.sublime-project
 *.sublime-workspace
-
+dates.env
 # cache de ferramentas
 .cache/
 .eslintcache
