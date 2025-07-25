@@ -1,0 +1,16 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Você pode adicionar estilos globais aqui também se quiser */
+@layer base {
+  body {
+    @apply bg-gray-100 text-gray-900;
+  }
+}
+@layer components {
+  .btn {
+    @apply px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors;
+  }
+}
+
