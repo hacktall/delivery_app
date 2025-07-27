@@ -1,3 +1,4 @@
+
 // src/components/AuthForm.jsx
 import { useState, useEffect, useRef } from "react";
 import axios from "axios";
@@ -75,14 +76,12 @@ export default function AuthForm() {
       const res = await axios.post(url, payload);
       const user = res.data.user || res.data;
       login(user, formData.remember);
-
-// Redireciona com base no tipo de usuário
-if (user.role === "admin") {
-  navigate("/admin");
-} else {
-  navigate("/conta");
-}
-
+      // Redireciona com base no tipo de usuário
+      if (user.role === "admin") {
+        navigate("/admin");
+      } else {
+        navigate("/conta");
+      }
     } catch (err) {
       if (err.response?.status === 401) {
         setError(err.response.data.error || "Credenciais inválidas");
@@ -186,6 +185,18 @@ if (user.role === "admin") {
           {loading ? <span className="animate-spin">⏳</span> : isLogin ? "Entrar" : "Cadastrar"}
         </button>
 
+        {isLogin && (
+          <div className="text-right">
+            <button
+              type="button"
+              onClick={() => navigate("/forgot")}
+              className="text-sm text-blue-600 hover:underline"
+            >
+              Esqueci minha senha
+            </button>
+          </div>
+        )}
+
         {error && <p className="text-center text-red-600 mt-2">{error}</p>}
 
         <p className="text-center text-sm mt-4">
@@ -202,3 +213,4 @@ if (user.role === "admin") {
     </div>
   );
 }
+

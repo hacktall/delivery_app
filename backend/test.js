@@ -4,6 +4,9 @@ import bodyParser from 'body-parser';
 import {init} from './db.js';
 import express from 'express';
 import { sendSMS } from './twiliosetup.js';
+import nodemailer from "nodemailer";
+import crypto from "crypto";
+
 //import { AuthClient } from '@google/auth-client'; // Assuming this is the correct import for your auth client
 
 //const cliente=new AuthClient('90841758110-8bifdi4fjjus8alvito3if706ppnii79.apps.googleusercontent.com');
@@ -151,6 +154,50 @@ app.post('/auth/register', async (req, res) => {
     res.status(500).json({ error: 'Erro no cadastro' });
   }
 });
+let resetTokens = {};
+
+app.post("/auth/forgot", async (req, res) => {
+  const { email } = req.body;
+  const pool = await init();
+  const [users] = await pool.execute("SELECT id FROM usuarios WHERE email = ?", [email]);
+  if (!users.length) return res.status(404).json({ error: "Email não encontrado" });
+
+  const token = crypto.randomBytes(32).toString("hex");
+  resetTokens[token] = users[0].id;
+
+  // Configurar transporter (exemplo Gmail)
+  const transporter = nodemailer.createTransport({
+    service: "gmail",
+    auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
+  });
+
+  const resetLink = `${process.env.FRONTEND_URL}/reset/${token}`;
+  await transporter.sendMail({
+    from: process.env.SMTP_USER,
+    to: email,
+    subject: "Redefinição de senha",
+    html: `Clique <a href="${resetLink}">aqui</a> para redefinir sua senha.`,
+  });
+
+  res.json({ message: "Link de redefinição enviado por email" });
+});
+
+app.post("/auth/reset/:token", async (req, res) => {
+  const { token } = req.params;
+  const userId = resetTokens[token];
+  if (!userId) return res.status(400).json({ error: "Token inválido ou expirado" });
+
+  const { password } = req.body;
+  const hash = await validatepass(password);
+
+  const pool = await init();
+  await pool.execute("UPDATE usuarios SET password = ? WHERE id = ?", [hash, userId]);
+
+  delete resetTokens[token];
+  res.json({ message: "Senha redefinida com sucesso" });
+});
+
+
 
 app.post('/order/send', async (req, res) => {
   const { phone, message } = req.body;
