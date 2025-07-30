@@ -147,5 +147,5 @@ Este projeto está licenciado sob a [MIT License](LICENSE).
 
 ---
 
-#### Desenvolvido com ❤️ por sua equipe de desenvolvimento
+#### Desenvolvido com ❤️ por hacktall
 
