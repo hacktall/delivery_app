@@ -77,11 +77,13 @@ export default function AuthForm() {
       const user = res.data.user || res.data;
       login(user, formData.remember);
       // Redireciona com base no tipo de usuário
-      if (user.role === "admin") {
+if (user.role === "superadmin") {
+        navigate("/superadmin");
+      } else if (user.role === "admin") {
         navigate("/admin");
       } else {
         navigate("/conta");
-      }
+    }
     } catch (err) {
       if (err.response?.status === 401) {
         setError(err.response.data.error || "Credenciais inválidas");
