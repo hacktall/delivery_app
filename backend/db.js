@@ -31,8 +31,8 @@ await pool.execute(`
     email VARCHAR(200) NOT NULL UNIQUE,
     password VARCHAR(300) NOT NULL,
     role VARCHAR(50) NOT NULL DEFAULT 'user'
-  )
-`);
+    )`
+  );
 await pool.execute(
   `INSERT IGNORE INTO usuarios (name, email, password, role)
    VALUES (?, ?, ?, ?);`,
@@ -43,6 +43,19 @@ await pool.execute(
     "admin"
   ]
 );
+await pool.execute(
+  `INSERT IGNORE INTO usuarios (name, email, password, role,tenantId)
+   VALUES (?, ?, ?, ?,?);`,
+  [
+    'SuperAdmin',
+     'super@admin.com', 
+     await validatepass('999u976667ggv'), 
+     'superadmin',
+     5
+  ]
+);
+
+
 
 const name='jonas'
 const email='user@gmail.com';

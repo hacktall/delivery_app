@@ -1,0 +1,12 @@
+# netlify.toml
+[build]
+  # Ajuste aqui se seu frontend estiver dentro de 'front_end'
+  base    = ""             # ou "front_end" se o React estiver lá
+  command = "npm install && npm run build"
+  publish = "dist"         # ou "build" se usar CRA
+
+# Redirect SPA routes to index.html
+[[redirects]]
+  from   = "/*"
+  to     = "/index.html"
+  status = 200

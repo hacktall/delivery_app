@@ -2,23 +2,29 @@ import { compare,generatetoken,validatepass,authentic} from './request.js';
 import cors from 'cors';
 import bodyParser from 'body-parser';
 import {init} from './db.js';
-import express from 'express';
+import express, { Router } from 'express';
 import { sendSMS } from './twiliosetup.js';
+import nodemailer from "nodemailer";
+import crypto from "crypto";
+import { authTenant } from './middleware/middleware.js';
+import { requestLogger} from "./logger.js";
+import { isSuperAdmin } from './middleware/isSuperAdmin.js';
 //import { AuthClient } from '@google/auth-client'; // Assuming this is the correct import for your auth client
 
 //const cliente=new AuthClient('90841758110-8bifdi4fjjus8alvito3if706ppnii79.apps.googleusercontent.com');
 const app=express();
 const port= 3000;
-
-
+const router = express.Router();
+//// Middleware para autenticação
 app.use(cors({
   origin: 'http://localhost:5173',
   credentials: true
 }));
-
 app.use(bodyParser.json());
 //app.use(express.json());
 app.use(express.static('../public'))
+app.use(requestLogger);
+
 
 app.get('/index',async(req,res)=>{
 try{
@@ -35,6 +41,7 @@ console.error("erro  ao buscar dados:",error);
 
   });
 
+  // Rota para criar um novo usuário
 app.post('/index', async(req,res)=>{
 try{
 
@@ -62,6 +69,9 @@ console.error(error);
 res.status(500).json({retorno:'interno server'});
 };
 });
+
+
+// Rota para buscar usuários
 app.get('/index/logica',async(req,res)=>{
   try{
 const pool =await init(); 
@@ -73,6 +83,8 @@ console.error('erro nao foi possivel carregar usuarios:', error);
 res.status(500).send({erro:'na busca de usuarios'});
 }
 })
+
+
 app.delete('/index/usuarios',async(req,res)=>{
 try{
 const pool=await init();
@@ -86,22 +98,9 @@ res.status(500).send({error:'impossivel excluir usuario seja pro'});
 }
 
 })
-app.post('/send-sms', async (req, res) => {
 
- console.log('Body recebido:', req.body);
-  const { phone, message } = req.body;
 
-  if (!phone || !message) {
-    return res.status(400).json({ error: 'Número e mensagem são obrigatórios' });
-  }
-
-  try {
-    const sid = await sendSMS(phone, message);
-    res.status(200).json({ success: true, sid });
-  } catch (error) {
-    res.status(500).json({ error: 'Erro ao enviar SMS' });
-  }
-});
+// Rota de autenticação
 app.post('/auth/login', async (req, res) => {
   const { email, password } = req.body;
   console.log('→ Requisição de login:', { email, password });
@@ -126,41 +125,144 @@ app.post('/auth/login', async (req, res) => {
     return res.status(401).json({ error: 'Senha incorreta' });
   }
 
-  const token = generatetoken({ userId: user.id });
-  console.log('→ Login OK, gerando token:', token);
-
-  res.status(200).json({ user, token });
+  const token = generatetoken({
+    userId: user.id,
+    tenantId: user.tenantId,
+    role: user.role
+  });
+  res.json({ user, token });
 });
 
 
-
-app.post('/auth/register', async (req, res) => {
+// Rota para registrar um novo usuário
+app.post("/auth/register", async (req, res) => {
   const { name, email, password } = req.body;
-  if (!email || !password) return res.status(400).json({ error: 'Campos obrigatórios' });
+  // supondo que o tenantId esteja vindo de algum header ou seja fixo
+  const tenantId = req.body.tenantId || 1; // ex: default tenant 1
+const pool = await init();
+  const hashed = await validatepass(password);
+  const [result] = await pool.execute(
+    "INSERT INTO usuarios (name, email, password, role, tenantId) VALUES (?, ?, ?, ?, ?)",
+    [name, email, hashed, "user", tenantId]
+  );
+  res.status(201).json({ message: "Usuário criado" });
+});
+let resetTokens = {};
 
-  try {
-    const pool = await init();
-    const hashed = await validatepass(password);
-    const [result] = await pool.execute(
-      'INSERT INTO usuarios (name, email, password, role) VALUES (?, ?, ?, ?)',
-      [name, email, hashed, 'user']
-    );
-    res.status(201).json({ message: 'Usuário criado' });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Erro no cadastro' });
-  }
+
+// Rota para solicitar redefinição de senha
+app.post("/auth/forgot", async (req, res) => {
+  const { email } = req.body;
+  const pool = await init();
+  const [users] = await pool.execute("SELECT id FROM usuarios WHERE email = ?", [email]);
+  if (!users.length) return res.status(404).json({ error: "Email não encontrado" });
+
+  const token = crypto.randomBytes(32).toString("hex");
+  resetTokens[token] = users[0].id;
+
+  // Configurar transporter (exemplo Gmail)
+  const transporter = nodemailer.createTransport({
+    service: "gmail",
+    auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
+  });
+
+  const resetLink = `${process.env.FRONTEND_URL}/reset/${token}`;
+  await transporter.sendMail({
+    from: process.env.SMTP_USER,
+    to: email,
+    subject: "Redefinição de senha",
+    html: `Clique <a href="${resetLink}">aqui</a> para redefinir sua senha.`,
+  });
+
+  res.json({ message: "Link de redefinição enviado por email" });
 });
 
-app.post('/order/send', async (req, res) => {
-  const { phone, message } = req.body;
-  try {
-    const sid = await sendSMS(phone, message);
-    res.json({ success: true, sid });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Erro ao enviar WhatsApp' });
-  }
+app.post("/auth/reset/:token", async (req, res) => {
+  const { token } = req.params;
+  const userId = resetTokens[token];
+  if (!userId) return res.status(400).json({ error: "Token inválido ou expirado" });
+
+  const { password } = req.body;
+  const hash = await validatepass(password);
+
+  const pool = await init();
+  await pool.execute("UPDATE usuarios SET password = ? WHERE id = ?", [hash, userId]);
+
+  delete resetTokens[token];
+  res.json({ message: "Senha redefinida com sucesso" });
+});
+
+// Middleware de autenticação para rotas protegidas
+app.get("/pedidos", authTenant, async (req, res) => {
+  const pool = await init();
+  const [rows] = await pool.execute(
+    "SELECT * FROM pedidos WHERE tenantId = ?",
+    [req.user.tenantId]
+  );
+  res.json(rows);
+});
+
+app.get("/produtos", authTenant, async (req, res) => {
+  const pool = await init();
+  const [rows] = await pool.execute(
+    "SELECT * FROM produtos WHERE tenantId = ?",
+    [req.user.tenantId]
+  );
+  res.json(rows);
+});
+
+app.get("/usuarios", authTenant, async (req, res) => {
+  const pool = await init();
+  const [rows] = await pool.execute(
+    "SELECT * FROM usuarios WHERE tenantId = ?",
+    [req.user.tenantId]
+  );
+  res.json(rows);
+});
+
+
+
+//app.use("/superadmin", authTenant,isSuperAdmin);
+// Todos exigem autenticação de tenant e superadmin
+app.use("/superadmin", authTenant, isSuperAdmin);
+
+// Listar Tenants
+app.get("/superadmin/tenants",authTenant, async (req, res) => {
+  const pool = await init();
+  const [rows] = await pool.execute("SELECT id, name, plan, active FROM tenants");
+  res.json(rows);
+});
+
+// Faturamento
+app.get("/superadmin/billing",authTenant, async (req, res) => {
+  const pool = await init();
+  const [rows] = await pool.execute(`
+    SELECT b.id, b.amount, b.date, t.name AS tenantName
+    FROM billing b
+    JOIN tenants t ON b.tenantId = t.id
+  `);
+  res.json(rows);
+});
+
+// Logs
+app.get("/superadmin/logs", async (req, res) => {
+  const pool = await init();
+  const [rows] = await pool.execute(
+    "SELECT * FROM logs ORDER BY timestamp DESC LIMIT 50"
+  );
+  res.json(rows);
+});
+
+// Tickets
+app.get("/superadmin/tickets", async (req, res) => {
+  const pool = await init();
+  const [rows] = await pool.execute(`
+    SELECT s.id, s.subject, s.message, s.createdAt, t.name AS tenantName
+    FROM support_tickets s
+    JOIN tenants t ON s.tenantId = t.id
+    ORDER BY s.createdAt DESC
+  `);
+  res.json(rows);
 });
 
 
